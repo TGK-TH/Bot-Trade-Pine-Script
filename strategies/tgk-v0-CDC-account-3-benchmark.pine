@@ -1,0 +1,31 @@
+//@version=6
+strategy("TGK[v0]: CDC Account 3 (Benchmark)", overlay=true, pyramiding=0)
+
+// === Inputs ===
+fastLength = input.int(12, "Fast EMA")
+slowLength = input.int(26, "Slow EMA")
+
+// === EMA ===
+emaFast = ta.ema(close, fastLength)
+emaSlow = ta.ema(close, slowLength)
+
+// === Plot ===
+plot(emaFast, color=color.blue, linewidth=2, title="EMA 12")
+plot(emaSlow, color=color.orange, linewidth=2, title="EMA 26")
+
+// === Signals ===
+buySignal = ta.crossover(emaFast, emaSlow)
+sellSignal = ta.crossunder(emaFast, emaSlow)
+
+// === Strategy ===
+if buySignal
+    strategy.close("Short")
+    strategy.entry("Long", strategy.long)
+
+if sellSignal
+    strategy.close("Long")
+    strategy.entry("Short", strategy.short)
+
+// === Plot Signals ===
+plotshape(buySignal, title="BUY", style=shape.triangleup, location=location.belowbar, color=color.green, size=size.small)
+plotshape(sellSignal, title="SELL", style=shape.triangledown, location=location.abovebar, color=color.red, size=size.small)
