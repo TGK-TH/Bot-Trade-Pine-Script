@@ -1,0 +1,564 @@
+//@version=6
+strategy("EMA Cross Retest Framework",
+     overlay=true,
+     pyramiding=0,
+     initial_capital=100000,
+     margin_long = 1,
+     margin_short = 1,
+     calc_on_every_tick = true)
+
+// =====================================================
+// INPUTS
+// =====================================================
+
+emaFastLen = input.int(12, "EMA Fast")
+emaSlowLen = input.int(26, "EMA Slow")
+
+adxLen = input.int(14, "ADX Length")
+adxThreshold = input.float(20, "ADX Threshold")
+
+// =====================================================
+// TRADE INPUTS
+// =====================================================
+
+slBuffer = input.float(0.20, "SL Buffer ($)")
+
+riskUSD = input.float(1000, "Risk Per Trade ($)", step = 100)
+maxLot = input.float(100, "Max Lot")
+
+trendTrailStartR = input.float(
+     3.5,
+     "Trend Trail Start RR",
+     step = 0.5)
+
+trendTrailStepR = input.float(
+     0.5,
+     "Trend Trail Step RR",
+     step = 0.5)
+
+normalTrailStartR = input.float(
+     1,
+     "Normal Trail Start RR",
+     step = 0.5)
+
+normalTrailStepR = input.float(
+     0.5,
+     "Normal Trail Step RR",
+     step = 0.5)
+
+var float entryPrice = na
+var float initialRisk = na
+
+// For Debug Lot Size
+var float currentQty = na
+
+// =====================================================
+// XAUUSD POSITION SIZE
+// =====================================================
+// XAUUSD ONLY
+// Assumption:
+// 1 Standard Lot = 100 oz
+//
+// หากนำไปใช้กับ Symbol อื่น
+// ต้องแก้ค่า contractSize ให้เหมาะสม
+//
+// EURUSD Standard Lot = 100000
+// BTCUSD แล้วแต่ Broker
+// US30 แล้วแต่ Broker
+// =====================================================
+
+calcLot(entryPrice, stopPrice) =>
+    riskDistance = math.abs(entryPrice - stopPrice)
+
+    riskPerLot = riskDistance * syminfo.pointvalue
+
+    qty = riskPerLot > 0 ? riskUSD / riskPerLot : 0
+
+    // ป้องกันกรณี SL แคบมาก
+    qty := math.max(qty, 0.01)
+    // ป้องกัน Lot ใหญ่เกิน
+    qty := math.min(qty, maxLot)
+
+    // ปัดเป็น 0.01 Lot
+    qty := math.round(qty * 100) / 100
+
+    qty
+
+// =====================================================
+// TRADE VARIABLES
+// =====================================================
+
+var bool trendMode = false
+var float tradeSL = na
+
+// =====================================================
+// STATES
+// =====================================================
+
+int STATE_WAIT_CROSS   = 0
+int STATE_WAIT_RETEST  = 1
+int STATE_WAIT_A       = 2
+int STATE_WAIT_B       = 3
+int STATE_IN_TRADE     = 4
+
+var int state = STATE_WAIT_CROSS
+
+// =====================================================
+// DIRECTION
+// =====================================================
+
+int DIR_NONE = 0
+int DIR_BUY  = 1
+int DIR_SELL = -1
+
+var int direction = DIR_NONE
+
+// =====================================================
+// M15 TRIGGER VARIABLES
+// =====================================================
+
+var float aHigh = na
+var float aLow = na
+var int aBarIndex = na
+
+// =====================================================
+// H1 DATA
+// =====================================================
+
+h1Close = request.security(
+     syminfo.tickerid,
+     "60",
+     close,
+     lookahead = barmerge.lookahead_off)
+
+h1High = request.security(
+     syminfo.tickerid,
+     "60",
+     high,
+     lookahead = barmerge.lookahead_off)
+
+h1Low = request.security(
+     syminfo.tickerid,
+     "60",
+     low,
+     lookahead = barmerge.lookahead_off)
+
+h1EMA12 = request.security(
+     syminfo.tickerid,
+     "60",
+     ta.ema(close, emaFastLen),
+     lookahead = barmerge.lookahead_off)
+
+h1EMA26 = request.security(
+     syminfo.tickerid,
+     "60",
+     ta.ema(close, emaSlowLen),
+     lookahead = barmerge.lookahead_off)
+
+[h1DIPlus, h1DIMinus, h1ADX] = request.security(
+     syminfo.tickerid,
+     "60",
+     ta.dmi(adxLen, adxLen),
+     lookahead = barmerge.lookahead_off)
+
+buyFilter =
+     h1ADX >= adxThreshold and
+     h1DIPlus > h1DIMinus
+
+sellFilter =
+     h1ADX >= adxThreshold and
+     h1DIMinus > h1DIPlus
+
+// =====================================================
+// H4 DATA
+// =====================================================
+
+h4EMA12 = request.security(
+     syminfo.tickerid,
+     "240",
+     ta.ema(close, emaFastLen),
+     lookahead = barmerge.lookahead_off)
+
+h4EMA26 = request.security(
+     syminfo.tickerid,
+     "240",
+     ta.ema(close, emaSlowLen),
+     lookahead = barmerge.lookahead_off)
+
+// =====================================================
+// M15 EMA
+// =====================================================
+
+m15EMA12 = ta.ema(close, emaFastLen)
+m15EMA26 = ta.ema(close, emaSlowLen)
+
+upperEMA = math.max(m15EMA12, m15EMA26)
+lowerEMA = math.min(m15EMA12, m15EMA26)
+
+plot(m15EMA12, color=color.blue)
+plot(m15EMA26, color=color.orange)
+
+// =====================================================
+// PIVOTS
+// =====================================================
+
+pivotLow = ta.pivotlow(low, 2, 1)
+pivotHigh = ta.pivothigh(high, 2, 1)
+
+var float lastPivotLow = na
+var float lastPivotHigh = na
+
+if not na(pivotLow)
+    lastPivotLow := pivotLow
+
+if not na(pivotHigh)
+    lastPivotHigh := pivotHigh
+
+// =====================================================
+// H1 CROSS
+// =====================================================
+
+h1CrossUp =
+     h1EMA12[1] <= h1EMA26[1] and
+     h1EMA12 > h1EMA26
+
+h1CrossDown =
+     h1EMA12[1] >= h1EMA26[1] and
+     h1EMA12 < h1EMA26
+
+// =====================================================
+// RESET ON NEW CROSS
+// =====================================================
+
+if h1CrossUp
+    state := STATE_WAIT_RETEST
+    direction := DIR_BUY
+
+if h1CrossDown
+    state := STATE_WAIT_RETEST
+    direction := DIR_SELL
+
+// =====================================================
+// WAIT RETEST
+// =====================================================
+
+buyRetest =
+     direction == DIR_BUY and
+     low < h1EMA12
+
+sellRetest =
+     direction == DIR_SELL and
+     high > h1EMA12
+
+if state == STATE_WAIT_RETEST
+
+    if buyRetest
+        state := STATE_WAIT_A
+
+    if sellRetest
+        state := STATE_WAIT_A
+
+// =====================================================
+// WAIT A
+// =====================================================
+
+buyA =
+     direction == DIR_BUY and
+     close > upperEMA
+
+sellA =
+     direction == DIR_SELL and
+     close < lowerEMA
+
+if state == STATE_WAIT_A and strategy.position_size == 0
+
+    if buyA
+        aHigh := high
+        aLow := low
+        aBarIndex := bar_index
+
+        state := STATE_WAIT_B
+
+    if sellA
+        aHigh := high
+        aLow := low
+        aBarIndex := bar_index
+
+        state := STATE_WAIT_B
+
+// =====================================================
+// WAIT B
+// =====================================================
+
+buyB =
+     direction == DIR_BUY and
+     bar_index == aBarIndex + 1 and
+     close > aHigh and
+     low > aLow
+
+sellB =
+     direction == DIR_SELL and
+     bar_index == aBarIndex + 1 and
+     close < aLow and
+     high < aHigh
+
+if state == STATE_WAIT_B
+
+    if direction == DIR_BUY
+
+        if buyB and strategy.position_size == 0
+            if buyFilter
+                tradeSL := lastPivotLow - slBuffer
+
+                riskDistance = close - tradeSL
+
+                trendMode := h4EMA12 > h4EMA26
+            
+                entryPrice := close
+                initialRisk := entryPrice - tradeSL
+                buyQty = calcLot(entryPrice, tradeSL)
+
+                // For Debug
+                currentQty := buyQty
+
+                strategy.entry(
+                    "BUY",
+                    strategy.long,
+                    qty = buyQty
+                )
+
+                strategy.exit(
+                    "BUY EXIT",
+                    "BUY",
+                    stop = tradeSL)
+
+
+                state := STATE_IN_TRADE
+            else
+                state := STATE_WAIT_CROSS
+
+        else if bar_index > aBarIndex
+            // B ต้องติดกับ A
+          //   state := STATE_WAIT_A
+            if buyA
+                aHigh := high
+                aLow := low
+                aBarIndex := bar_index
+
+                state := STATE_WAIT_B
+            else
+                state := STATE_WAIT_A
+
+
+    if direction == DIR_SELL
+
+        if sellB and strategy.position_size == 0
+            if sellFilter
+                tradeSL := lastPivotHigh + slBuffer
+
+                riskDistance = tradeSL - close
+
+                trendMode := h4EMA12 < h4EMA26
+
+                entryPrice := close
+                initialRisk := tradeSL - entryPrice
+                sellQty = calcLot(entryPrice, tradeSL)
+
+                // For Debug
+                currentQty := sellQty
+               
+                strategy.entry(
+                    "SELL",
+                    strategy.short,
+                    qty = sellQty
+                )
+
+                strategy.exit(
+                    "SELL EXIT",
+                    "SELL",
+                    stop = tradeSL)
+
+                state := STATE_IN_TRADE
+            else
+                state := STATE_WAIT_CROSS
+
+        else if bar_index > aBarIndex
+          //   state := STATE_WAIT_A
+            if sellA
+                aHigh := high
+                aLow := low
+                aBarIndex := bar_index
+
+                state := STATE_WAIT_B
+            else
+                state := STATE_WAIT_A
+
+// =====================================================
+// RR TRAILING STOP
+// =====================================================
+
+if strategy.position_size > 0
+    startRR =
+         trendMode
+         ? trendTrailStartR
+         : normalTrailStartR
+
+    stepRR =
+         trendMode
+         ? trendTrailStepR
+         : normalTrailStepR
+
+    currentRR =
+         (high - entryPrice) / initialRisk
+
+    if currentRR >= startRR
+
+        lockedRR =
+             math.floor(
+                 (currentRR - startRR)
+                 / stepRR) * stepRR
+             + (startRR - stepRR)
+
+        newSL =
+             entryPrice +
+             (lockedRR * initialRisk)
+
+        tradeSL := math.max(tradeSL, newSL)
+
+        strategy.exit(
+             "BUY EXIT",
+             "BUY",
+             stop = tradeSL)
+
+if strategy.position_size < 0
+    startRR =
+         trendMode
+         ? trendTrailStartR
+         : normalTrailStartR
+
+    stepRR =
+         trendMode
+         ? trendTrailStepR
+         : normalTrailStepR
+
+    currentRR =
+         (entryPrice - low) / initialRisk
+
+    if currentRR >= startRR
+
+        lockedRR =
+             math.floor(
+                 (currentRR - startRR)
+                 / stepRR) * stepRR
+             + (startRR - stepRR)
+
+        newSL =
+             entryPrice -
+             (lockedRR * initialRisk)
+
+        tradeSL := math.min(tradeSL, newSL)
+
+        strategy.exit(
+             "SELL EXIT",
+             "SELL",
+             stop = tradeSL)
+
+// =====================================================
+// VISUAL DEBUG
+// =====================================================
+
+plot(h1EMA12, color=color.green, linewidth=2)
+plot(h1EMA26, color=color.red, linewidth=2)
+
+plotshape(
+     h1CrossUp,
+     title="H1 Cross Up",
+     style=shape.triangleup,
+     location=location.belowbar,
+     color=color.lime,
+     size=size.small)
+
+plotshape(
+     h1CrossDown,
+     title="H1 Cross Down",
+     style=shape.triangledown,
+     location=location.abovebar,
+     color=color.red,
+     size=size.small)
+
+plotshape(
+     state == STATE_WAIT_A and direction == DIR_BUY,
+     title="BUY Retest Done",
+     style=shape.circle,
+     location=location.belowbar,
+     color=color.green,
+     size=size.tiny)
+
+plotshape(
+     state == STATE_WAIT_A and direction == DIR_SELL,
+     title="SELL Retest Done",
+     style=shape.circle,
+     location=location.abovebar,
+     color=color.orange,
+     size=size.tiny)
+
+plotshape(
+     state == STATE_WAIT_B and direction == DIR_BUY,
+     title="Found A BUY",
+     style=shape.labelup,
+     text="A",
+     color=color.green,
+     location=location.belowbar)
+
+plotshape(
+     state == STATE_WAIT_B and direction == DIR_SELL,
+     title="Found A SELL",
+     style=shape.labeldown,
+     text="A",
+     color=color.red,
+     location=location.abovebar)
+
+plotshape(
+     state == STATE_IN_TRADE and direction == DIR_BUY,
+     title="BUY B",
+     style=shape.triangleup,
+     color=color.lime,
+     size=size.small,
+     location=location.belowbar)
+
+plotshape(
+     state == STATE_IN_TRADE and direction == DIR_SELL,
+     title="SELL B",
+     style=shape.triangledown,
+     color=color.red,
+     size=size.small,
+     location=location.abovebar)
+
+plot(
+     strategy.position_size != 0 ? tradeSL : na,
+     "Trailing SL",
+     color=color.yellow,
+     linewidth=3,
+     style=plot.style_linebr)
+
+// =====================================================
+// STATE LABEL
+// =====================================================
+
+var label stateLabel = na
+
+if barstate.islast
+
+    label.delete(stateLabel)
+
+    txt =
+          "STATE = " + str.tostring(state) +
+          "\nDIR = " + str.tostring(direction) +
+          "\nQty = " + str.tostring(currentQty)
+
+    stateLabel :=
+         label.new(
+             bar_index,
+             high,
+             txt,
+             style = label.style_label_down)
