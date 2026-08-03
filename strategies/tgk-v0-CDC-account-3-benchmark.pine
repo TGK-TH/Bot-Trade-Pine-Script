@@ -1,31 +1,120 @@
 //@version=6
-strategy("TGK[v0]: CDC Account 3 (Benchmark)", overlay=true, pyramiding=0)
+strategy("TGK[v0]: CDC Account 3 (Benchmark)",
+    overlay=true,
+    pyramiding=0,
+    initial_capital=100000,
+    margin_long = 1,
+    margin_short = 1,
+    calc_on_every_tick = true)
 
-// === Inputs ===
+// =====================================================
+// Inputs
+// =====================================================
 fastLength = input.int(12, "Fast EMA")
 slowLength = input.int(26, "Slow EMA")
 
-// === EMA ===
+isFixedLot = input.bool(true, "Fixed Lot?")
+fixedLotValue = input.float(10.0, "Fixed Lot Value")
+
+riskUSD = input.float(1000, "Risk Per Trade ($)", step = 100)
+maxLot = input.float(100, "Max Lot")
+slBuffer = input.float(0.20, "SL Buffer ($)")
+
+// =====================================================
+// EMA
+// =====================================================
 emaFast = ta.ema(close, fastLength)
 emaSlow = ta.ema(close, slowLength)
 
-// === Plot ===
+// =====================================================
+// Plot
+// =====================================================
 plot(emaFast, color=color.blue, linewidth=2, title="EMA 12")
 plot(emaSlow, color=color.orange, linewidth=2, title="EMA 26")
 
-// === Signals ===
+// =====================================================
+// XAUUSD POSITION SIZE
+// =====================================================
+// XAUUSD ONLY
+// Assumption:
+// 1 Standard Lot = 100 oz
+//
+// หากนำไปใช้กับ Symbol อื่น
+// ต้องแก้ค่า contractSize ให้เหมาะสม
+//
+// EURUSD Standard Lot = 100000
+// BTCUSD แล้วแต่ Broker
+// US30 แล้วแต่ Broker
+// =====================================================
+
+calcLot(entryPrice, stopPrice) =>
+    riskDistance = math.abs(entryPrice - stopPrice)
+
+    riskPerLot = riskDistance * syminfo.pointvalue
+
+    qty = riskPerLot > 0 ? riskUSD / riskPerLot : 0
+
+    // ป้องกันกรณี SL แคบมาก
+    qty := math.max(qty, 0.01)
+    // ป้องกัน Lot ใหญ่เกิน
+    qty := math.min(qty, maxLot)
+
+    // ปัดเป็น 0.01 Lot
+    qty := math.round(qty * 100) / 100
+
+    qty
+
+// =====================================================
+// PIVOTS
+// =====================================================
+
+pivotLow = ta.pivotlow(low, 2, 1)
+pivotHigh = ta.pivothigh(high, 2, 1)
+
+var float lastPivotLow = na
+var float lastPivotHigh = na
+
+if not na(pivotLow)
+    lastPivotLow := pivotLow
+
+if not na(pivotHigh)
+    lastPivotHigh := pivotHigh
+
+// =====================================================
+// Signals
+// =====================================================
 buySignal = ta.crossover(emaFast, emaSlow)
 sellSignal = ta.crossunder(emaFast, emaSlow)
 
-// === Strategy ===
+// =====================================================
+// Strategy
+// =====================================================
 if buySignal
+    tradeSL = lastPivotLow - slBuffer
+    buyQty = 0.0
+
+    if isFixedLot
+        buyQty := fixedLotValue
+    else
+        buyQty := calcLot(close, tradeSL)
+
     strategy.close("Short")
-    strategy.entry("Long", strategy.long)
+    strategy.entry("Long", strategy.long, qty = buyQty)
 
 if sellSignal
-    strategy.close("Long")
-    strategy.entry("Short", strategy.short)
+    tradeSL = lastPivotHigh + slBuffer
+    sellQty = 0.0
 
-// === Plot Signals ===
+    if isFixedLot
+        sellQty := fixedLotValue
+    else
+        sellQty := calcLot(close, tradeSL)
+
+    strategy.close("Long")
+    strategy.entry("Short", strategy.short, qty = sellQty)
+
+// =====================================================
+// Plot Signals
+// =====================================================
 plotshape(buySignal, title="BUY", style=shape.triangleup, location=location.belowbar, color=color.green, size=size.small)
 plotshape(sellSignal, title="SELL", style=shape.triangledown, location=location.abovebar, color=color.red, size=size.small)
