@@ -20,6 +20,8 @@ riskUSD = input.float(1000, "Risk Per Trade ($)", step = 100)
 maxLot = input.float(100, "Max Lot")
 slBuffer = input.float(0.20, "SL Buffer ($)")
 
+setSlAtLastPivot = input.bool(false, "Set SL at last pivot?")
+
 // =====================================================
 // EMA
 // =====================================================
@@ -101,6 +103,13 @@ if buySignal
     strategy.close("Short")
     strategy.entry("Long", strategy.long, qty = buyQty)
 
+    if setSlAtLastPivot
+        strategy.exit(
+            "Long SL",
+            "Long",
+            stop = tradeSL
+        )
+
 if sellSignal
     tradeSL = lastPivotHigh + slBuffer
     sellQty = 0.0
@@ -112,6 +121,13 @@ if sellSignal
 
     strategy.close("Long")
     strategy.entry("Short", strategy.short, qty = sellQty)
+
+    if setSlAtLastPivot
+        strategy.exit(
+            "Short SL",
+            "Short",
+            stop = tradeSL
+        )
 
 // =====================================================
 // Plot Signals
