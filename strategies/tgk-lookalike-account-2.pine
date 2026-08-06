@@ -1,0 +1,152 @@
+//@version=6
+indicator("TGK CDC Lookalike Account 2", overlay=true)
+
+//==================================================
+// INPUT
+//==================================================
+
+emaFastLen = input.int(12, "EMA Fast")
+emaSlowLen = input.int(26, "EMA Slow")
+
+//==================================================
+// EMA
+//==================================================
+
+ema12 = ta.ema(close, emaFastLen)
+ema26 = ta.ema(close, emaSlowLen)
+
+plot(ema12, color=color.green)
+plot(ema26, color=color.orange)
+
+//==================================================
+// CROSS
+//==================================================
+
+greenCross = ta.crossover(ema12, ema26)
+redCross   = ta.crossunder(ema12, ema26)
+
+plotshape(greenCross,
+     style=shape.circle,
+     color=color.lime,
+     size=size.small,
+     location=location.belowbar)
+
+plotshape(redCross,
+     style=shape.circle,
+     color=color.red,
+     size=size.small,
+     location=location.abovebar)
+
+//==================================================
+// CURRENT SEGMENT
+//==================================================
+
+var int segStart = na
+
+var float currentHigh = na
+var float currentLow  = na
+
+var int currentHighBar = na
+var int currentLowBar  = na
+
+var bool currentIsGreen = ema12 > ema26
+
+//==================================================
+// HISTORY
+//==================================================
+type Segment
+    int startBar
+    int endBar
+
+    int crossBar
+
+    float highest
+    int highestBar
+
+    float lowest
+    int lowestBar
+
+    bool isGreen
+
+var segments = array.new<Segment>()
+
+//==================================================
+// INITIALIZE
+//==================================================
+
+if barstate.isfirst
+    segStart := bar_index
+    currentHigh := high
+    currentLow := low
+    currentHighBar := bar_index
+    currentLowBar := bar_index
+    currentIsGreen := ema12 > ema26
+
+//==================================================
+// UPDATE CURRENT SEGMENT
+//==================================================
+
+if high > currentHigh
+    currentHigh := high
+    currentHighBar := bar_index
+
+if low < currentLow
+    currentLow := low
+    currentLowBar := bar_index
+
+//==================================================
+// SAVE SEGMENT
+//==================================================
+
+crossHappened = greenCross or redCross
+
+if crossHappened
+    seg = Segment.new(
+        segStart,
+        bar_index - 1,
+        bar_index,
+        currentHigh,
+        currentHighBar,
+        currentLow,
+        currentLowBar,
+        currentIsGreen
+    )
+    array.push(segments, seg)
+
+    //--------------------------------------
+    // Start next segment
+    //--------------------------------------
+
+    segStart := bar_index
+
+    currentHigh := high
+    currentHighBar := bar_index
+
+    currentLow := low
+    currentLowBar := bar_index
+
+    currentIsGreen := greenCross
+
+//==================================================
+// DEBUG
+//==================================================
+
+showDebug = input.bool(true)
+
+if showDebug and crossHappened
+    int last = array.size(segments) - 1
+
+    Segment lastSeg = array.get(segments, last)
+    string txt =
+          "Segment #" + str.tostring(last)
+      + "\nDir : " + (lastSeg.isGreen ? "Green" : "Red")
+      + "\nHigh : " + str.tostring(lastSeg.highest)
+      + "\nLow : " + str.tostring(lastSeg.lowest)
+
+    float y = lastSeg.isGreen ? lastSeg.highest : lastSeg.lowest
+
+    label.new(
+         bar_index,
+         y,
+         txt,
+         style=label.style_label_left)
