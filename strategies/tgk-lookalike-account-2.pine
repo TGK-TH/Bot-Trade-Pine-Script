@@ -8,6 +8,8 @@ indicator("TGK CDC Lookalike Account 2", overlay=true)
 emaFastLen = input.int(12, "EMA Fast")
 emaSlowLen = input.int(26, "EMA Slow")
 
+showDebug = input.bool(true)
+
 //==================================================
 // EMA
 //==================================================
@@ -71,6 +73,39 @@ type Segment
 var segments = array.new<Segment>()
 
 //==================================================
+// SEGMENT FUNCTIONS
+//==================================================
+
+HasEnoughSegments(int count) =>
+    array.size(segments) >= count
+
+GetSegment(int offset) =>
+    array.get(segments, array.size(segments) - 1 - offset)
+
+//==================================================
+// Pattern Checking Functions
+//==================================================
+IsBuyPattern() =>
+    if not HasEnoughSegments(3)
+        false
+    else
+        Segment s0 = GetSegment(0)
+        Segment s1 = GetSegment(1)
+        Segment s2 = GetSegment(2)
+
+        not s2.isGreen and s1.isGreen and not s0.isGreen
+
+IsSellPattern() =>
+    if not HasEnoughSegments(3)
+        false
+    else
+        Segment s0 = GetSegment(0)
+        Segment s1 = GetSegment(1)
+        Segment s2 = GetSegment(2)
+
+        s2.isGreen and not s1.isGreen and s0.isGreen
+
+//==================================================
 // INITIALIZE
 //==================================================
 
@@ -130,23 +165,23 @@ if crossHappened
 //==================================================
 // DEBUG
 //==================================================
-
-showDebug = input.bool(true)
-
 if showDebug and crossHappened
-    int last = array.size(segments) - 1
+    Segment s0 = GetSegment(0)
+    string msg = ""
+    float y = s0.isGreen ? s0.highest : s0.lowest
 
-    Segment lastSeg = array.get(segments, last)
-    string txt =
-          "Segment #" + str.tostring(last)
-      + "\nDir : " + (lastSeg.isGreen ? "Green" : "Red")
-      + "\nHigh : " + str.tostring(lastSeg.highest)
-      + "\nLow : " + str.tostring(lastSeg.lowest)
+    if IsBuyPattern()
+        msg := "BUY Pattern"
 
-    float y = lastSeg.isGreen ? lastSeg.highest : lastSeg.lowest
+    if IsSellPattern()
+        msg := "SELL Pattern"
 
-    label.new(
-         bar_index,
-         y,
-         txt,
-         style=label.style_label_left)
+    if msg != ""
+        label.new(
+            bar_index,
+            y,
+            msg,
+            style= s0.isGreen ? label.style_label_down : label.style_label_up,
+            color=color.blue,
+            textcolor=color.white
+        )
