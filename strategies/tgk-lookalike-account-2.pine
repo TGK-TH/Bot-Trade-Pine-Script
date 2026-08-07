@@ -1,5 +1,10 @@
 //@version=6
-indicator("TGK CDC Lookalike Account 2", overlay=true)
+strategy(
+    "TGK CDC Lookalike Account 2",
+    overlay=true,
+    pyramiding=0,
+    process_orders_on_close=true
+)
 
 //==================================================
 // INPUT
@@ -12,6 +17,8 @@ showDebug = input.bool(true)
 
 retracementMin = input.float(61.8, "Retracement Min %")
 retracementMax = input.float(100.0, "Retracement Max %")
+
+fixedLot = input.float(10.0, "Fixed Lot", minval=0.01, step=0.01)
 
 //==================================================
 // EMA
@@ -347,4 +354,34 @@ if showDebug and crossHappened and HasEnoughSegments(3)
             style=label.style_label_down,
             color=sellPattern ? color.red : color.gray,
             textcolor=color.white
+        )
+
+//==================================================
+// STRATEGY EXECUTION
+//==================================================
+
+if greenCross
+    // Close existing SELL
+    if strategy.position_size < 0
+        strategy.close("SELL", comment="Green Cross")
+
+    // Enter BUY when pattern is valid
+    if IsBuyPattern() and strategy.position_size <= 0
+        strategy.entry(
+            "BUY",
+            strategy.long,
+            qty=fixedLot
+        )
+
+if redCross
+    // Close existing BUY
+    if strategy.position_size > 0
+        strategy.close("BUY", comment="Red Cross")
+
+    // Enter SELL when pattern is valid
+    if IsSellPattern() and strategy.position_size >= 0
+        strategy.entry(
+            "SELL",
+            strategy.short,
+            qty=fixedLot
         )
