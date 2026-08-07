@@ -86,7 +86,7 @@ GetSegment(int offset) =>
     array.get(segments, array.size(segments) - 1 - offset)
 
 //==================================================
-// Pattern Checking Functions
+// Check Buy Pattern Functions
 //==================================================
 IsBuyPattern() =>
     if not HasEnoughSegments(3)
@@ -126,6 +126,9 @@ IsBuyPattern() =>
 
                 retracement >= retracementMin and retracement <= retracementMax
 
+//==================================================
+// Check Sell Pattern Functions
+//==================================================
 IsSellPattern() =>
     if not HasEnoughSegments(3)
         false
@@ -134,10 +137,39 @@ IsSellPattern() =>
         Segment s1 = GetSegment(1)
         Segment s2 = GetSegment(2)
 
-        s2.isGreen and not s1.isGreen and s0.isGreen
+        // Pattern must be:
+        // S2 = Green
+        // S1 = Red
+        // S0 = Green
+
+        bool correctSequence = s2.isGreen and not s1.isGreen and s0.isGreen
+
+        if not correctSequence
+            false
+        else
+            // S2 = Green Far
+            // S1 = Red
+            // S0 = Green Near
+
+            float high1 = s2.highest
+            float low1  = s1.lowest
+            float high2 = s0.highest
+
+            // Lower High
+            bool lowerHigh = high2 < high1
+
+            // Prevent invalid range
+            float H1L1Range = high1 - low1
+
+            if not lowerHigh or H1L1Range <= 0
+                false
+            else
+                float retracement = (high2 - low1) / H1L1Range * 100.0
+
+                retracement >= retracementMin and retracement <= retracementMax
 
 //==================================================
-// Get Retracement for Debugging
+// Get Buy Retracement for Debugging
 //==================================================
 GetBuyRetracement() =>
     if not HasEnoughSegments(3)
@@ -157,6 +189,29 @@ GetBuyRetracement() =>
             na
         else
             (high1 - low2) / L1H1Range * 100.0
+
+//==================================================
+// Get Sell Retracement for Debugging
+//==================================================
+
+GetSellRetracement() =>
+    if not HasEnoughSegments(3)
+        na
+    else
+        Segment s0 = GetSegment(0)
+        Segment s1 = GetSegment(1)
+        Segment s2 = GetSegment(2)
+
+        float high1 = s2.highest
+        float low1  = s1.lowest
+        float high2 = s0.highest
+
+        float H1L1Range = high1 - low1
+
+        if H1L1Range <= 0
+            na
+        else
+            (high2 - low1) / H1L1Range * 100.0
 
 //==================================================
 // INITIALIZE
@@ -218,6 +273,7 @@ if crossHappened
 //==================================================
 // DEBUG
 //==================================================
+
 if showDebug and crossHappened and HasEnoughSegments(3)
 
     Segment s0 = GetSegment(0)
@@ -225,30 +281,70 @@ if showDebug and crossHappened and HasEnoughSegments(3)
     Segment s2 = GetSegment(2)
 
     bool buyPattern = IsBuyPattern()
+    bool sellPattern = IsSellPattern()
 
-    float low1 = s2.lowest
-    float high1 = s1.highest
-    float low2 = s0.lowest
+    //--------------------------------------------------
+    // BUY DEBUG
+    //--------------------------------------------------
 
-    float buyRetracement = GetBuyRetracement()
+    if greenCross
 
-    string msg =
-          "BUY Pattern Check"
-      + "\nL1 : " + str.tostring(low1)
-      + "\nH1 : " + str.tostring(high1)
-      + "\nL2 : " + str.tostring(low2)
-      + "\nRetracement : "
-      + str.tostring(buyRetracement, "#.##") + "%"
-      + "\nHigher Low : "
-      + str.tostring(low2 > low1)
-      + "\nResult : "
-      + (buyPattern ? "PASS" : "FAIL")
+        float low1 = s2.lowest
+        float high1 = s1.highest
+        float low2 = s0.lowest
 
-    label.new(
-        bar_index,
-        s0.isGreen ? s0.highest : s0.lowest,
-        msg,
-        style= s0.isGreen ? label.style_label_down : label.style_label_up,
-        color=buyPattern ? color.green : color.gray,
-        textcolor=color.white
-    )
+        float buyRetracement = GetBuyRetracement()
+
+        string msg =
+              "BUY Pattern Check"
+          + "\nL1 : " + str.tostring(low1)
+          + "\nH1 : " + str.tostring(high1)
+          + "\nL2 : " + str.tostring(low2)
+          + "\nRetracement : "
+          + str.tostring(buyRetracement, "#.##") + "%"
+          + "\nHigher Low : "
+          + str.tostring(low2 > low1)
+          + "\nResult : "
+          + (buyPattern ? "PASS" : "FAIL")
+
+        label.new(
+            bar_index,
+            low2,
+            msg,
+            style=label.style_label_up,
+            color=buyPattern ? color.green : color.gray,
+            textcolor=color.white
+        )
+
+    //--------------------------------------------------
+    // SELL DEBUG
+    //--------------------------------------------------
+
+    if redCross
+
+        float high1 = s2.highest
+        float low1  = s1.lowest
+        float high2 = s0.highest
+
+        float sellRetracement = GetSellRetracement()
+
+        string msg =
+              "SELL Pattern Check"
+          + "\nH1 : " + str.tostring(high1)
+          + "\nL1 : " + str.tostring(low1)
+          + "\nH2 : " + str.tostring(high2)
+          + "\nRetracement : "
+          + str.tostring(sellRetracement, "#.##") + "%"
+          + "\nLower High : "
+          + str.tostring(high2 < high1)
+          + "\nResult : "
+          + (sellPattern ? "PASS" : "FAIL")
+
+        label.new(
+            bar_index,
+            high2,
+            msg,
+            style=label.style_label_down,
+            color=sellPattern ? color.red : color.gray,
+            textcolor=color.white
+        )
