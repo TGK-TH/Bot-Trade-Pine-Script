@@ -3,7 +3,9 @@ strategy(
     "TGK CDC Lookalike Account 2",
     overlay=true,
     pyramiding=0,
-    process_orders_on_close=true
+    process_orders_on_close=true,
+    max_lines_count=500,
+    max_labels_count=500
 )
 
 //==================================================
@@ -19,6 +21,9 @@ retracementMin = input.float(61.8, "Retracement Min %")
 retracementMax = input.float(100.0, "Retracement Max %")
 
 fixedLot = input.float(10.0, "Fixed Lot", minval=0.01, step=0.01)
+
+showPattern = input.bool(true, "Show Pattern")
+showPatternLabels = input.bool(true, "Show Pattern Labels")
 
 //==================================================
 // EMA
@@ -221,6 +226,106 @@ GetSellRetracement() =>
             (high2 - low1) / H1L1Range * 100.0
 
 //==================================================
+// DRAW BUY PATTERN
+//==================================================
+
+DrawBuyPattern() =>
+    Segment s0 = GetSegment(0)
+    Segment s1 = GetSegment(1)
+    Segment s2 = GetSegment(2)
+
+    // L1 -> H1
+    line.new(
+        s2.lowestBar,
+        s2.lowest,
+        s1.highestBar,
+        s1.highest,
+        xloc=xloc.bar_index,
+        color=color.green,
+        width=2
+    )
+
+    // H1 -> L2
+    line.new(
+        s1.highestBar,
+        s1.highest,
+        s0.lowestBar,
+        s0.lowest,
+        xloc=xloc.bar_index,
+        color=color.green,
+        width=2
+    )
+
+//==================================================
+// DRAW SELL PATTERN
+//==================================================
+
+DrawSellPattern() =>
+    Segment s0 = GetSegment(0)
+    Segment s1 = GetSegment(1)
+    Segment s2 = GetSegment(2)
+
+    // H1 -> L1
+    line.new(
+        s2.highestBar,
+        s2.highest,
+        s1.lowestBar,
+        s1.lowest,
+        xloc=xloc.bar_index,
+        color=color.red,
+        width=2
+    )
+
+    // L1 -> H2
+    line.new(
+        s1.lowestBar,
+        s1.lowest,
+        s0.highestBar,
+        s0.highest,
+        xloc=xloc.bar_index,
+        color=color.red,
+        width=2
+    )
+
+//==================================================
+// DRAW BUY LABEL
+//==================================================
+
+DrawBuyLabel() =>
+    Segment s0 = GetSegment(0)
+
+    float retracement = GetBuyRetracement()
+
+    label.new(
+        bar_index,
+        s0.lowest,
+        "BUY\nRetracement: "
+          + str.tostring(retracement, "#.##") + "%",
+        style=label.style_label_up,
+        color=color.green,
+        textcolor=color.white
+    )
+
+//==================================================
+// DRAW SELL LABEL
+//==================================================
+
+DrawSellLabel() =>
+    Segment s0 = GetSegment(0)
+
+    float retracement = GetSellRetracement()
+
+    label.new(
+        bar_index,
+        s0.highest,
+        "SELL\nRetracement: "
+          + str.tostring(retracement, "#.##") + "%",
+        style=label.style_label_down,
+        color=color.red,
+        textcolor=color.white
+    )
+
+//==================================================
 // INITIALIZE
 //==================================================
 
@@ -385,3 +490,21 @@ if redCross
             strategy.short,
             qty=fixedLot
         )
+
+//==================================================
+// PATTERN VISUALIZATION
+//==================================================
+
+if showPattern and greenCross and IsBuyPattern()
+
+    DrawBuyPattern()
+
+    if showPatternLabels
+        DrawBuyLabel()
+
+if showPattern and redCross and IsSellPattern()
+
+    DrawSellPattern()
+
+    if showPatternLabels
+        DrawSellLabel()
