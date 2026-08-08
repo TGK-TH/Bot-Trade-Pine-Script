@@ -69,7 +69,7 @@ var int currentLowBar  = na
 var bool currentIsGreen = ema12 > ema26
 
 //==================================================
-// HISTORY
+// SEGMENT DATA
 //==================================================
 type Segment
     int startBar
@@ -88,6 +88,24 @@ type Segment
 var segments = array.new<Segment>()
 
 //==================================================
+// PATTERN DATA
+//==================================================
+
+type Pattern
+    bool valid
+    bool isBuy
+
+    float point1
+    float point2
+    float point3
+
+    int point1Bar
+    int point2Bar
+    int point3Bar
+
+    float retracement
+
+//==================================================
 // SEGMENT FUNCTIONS
 //==================================================
 
@@ -98,159 +116,139 @@ GetSegment(int offset) =>
     array.get(segments, array.size(segments) - 1 - offset)
 
 //==================================================
-// Check Buy Pattern Functions
+// BUILD BUY PATTERN
 //==================================================
-IsBuyPattern() =>
+
+BuildBuyPattern() =>
+    Pattern result = Pattern.new(
+        false,
+        true,
+        na,
+        na,
+        na,
+        na,
+        na,
+        na,
+        na
+    )
+
     if not HasEnoughSegments(3)
-        false
+        result
     else
         Segment s0 = GetSegment(0)
         Segment s1 = GetSegment(1)
         Segment s2 = GetSegment(2)
 
-        // Pattern must be:
-        // S2 = Red
-        // S1 = Green
-        // S0 = Red
         bool correctSequence = not s2.isGreen and s1.isGreen and not s0.isGreen
 
         if not correctSequence
-            false
+            result
         else
-            // S2 = Red Far
-            // S1 = Green
-            // S0 = Red Near
-
             float low1  = s2.lowest
             float high1 = s1.highest
             float low2  = s0.lowest
 
-            // Higher Low
+            int low1Bar   = s2.lowestBar
+            int high1Bar  = s1.highestBar
+            int low2Bar   = s0.lowestBar
+
             bool higherLow = low2 > low1
-
-            // Prevent invalid range between high1 and low1
             float L1H1Range = high1 - low1
+            bool valid = false
+            float retracement = L1H1Range > 0 ? (high1 - low2) / L1H1Range * 100.0 : na
 
-            if not higherLow or L1H1Range <= 0
-                false
-            else
-                float retracement = (high1 - low2) / L1H1Range * 100.0
+            if higherLow
+                valid := retracement >= retracementMin and retracement <= retracementMax
 
-                retracement >= retracementMin and retracement <= retracementMax
+            Pattern.new(
+                valid,
+                true,
+                low1,
+                high1,
+                low2,
+                low1Bar,
+                high1Bar,
+                low2Bar,
+                retracement
+            )
 
 //==================================================
-// Check Sell Pattern Functions
+// BUILD SELL PATTERN
 //==================================================
-IsSellPattern() =>
+
+BuildSellPattern() =>
+    Pattern result = Pattern.new(
+        false,
+        false,
+        na,
+        na,
+        na,
+        na,
+        na,
+        na,
+        na
+    )
+
     if not HasEnoughSegments(3)
-        false
+        result
     else
         Segment s0 = GetSegment(0)
         Segment s1 = GetSegment(1)
         Segment s2 = GetSegment(2)
-
-        // Pattern must be:
-        // S2 = Green
-        // S1 = Red
-        // S0 = Green
 
         bool correctSequence = s2.isGreen and not s1.isGreen and s0.isGreen
 
         if not correctSequence
-            false
+            result
         else
-            // S2 = Green Far
-            // S1 = Red
-            // S0 = Green Near
-
             float high1 = s2.highest
             float low1  = s1.lowest
             float high2 = s0.highest
 
-            // Lower High
+            int high1Bar = s2.highestBar
+            int low1Bar  = s1.lowestBar
+            int high2Bar = s0.highestBar
+
             bool lowerHigh = high2 < high1
-
-            // Prevent invalid range
             float H1L1Range = high1 - low1
+            bool valid = false
+            float retracement = H1L1Range > 0 ? (high2 - low1) / H1L1Range * 100.0 : na
 
-            if not lowerHigh or H1L1Range <= 0
-                false
-            else
-                float retracement = (high2 - low1) / H1L1Range * 100.0
+            if lowerHigh
+                valid := retracement >= retracementMin and retracement <= retracementMax
 
-                retracement >= retracementMin and retracement <= retracementMax
-
-//==================================================
-// Get Buy Retracement for Debugging
-//==================================================
-GetBuyRetracement() =>
-    if not HasEnoughSegments(3)
-        na
-    else
-        Segment s0 = GetSegment(0)
-        Segment s1 = GetSegment(1)
-        Segment s2 = GetSegment(2)
-
-        float low1  = s2.lowest
-        float high1 = s1.highest
-        float low2  = s0.lowest
-
-        float L1H1Range = high1 - low1
-
-        if L1H1Range <= 0
-            na
-        else
-            (high1 - low2) / L1H1Range * 100.0
-
-//==================================================
-// Get Sell Retracement for Debugging
-//==================================================
-
-GetSellRetracement() =>
-    if not HasEnoughSegments(3)
-        na
-    else
-        Segment s0 = GetSegment(0)
-        Segment s1 = GetSegment(1)
-        Segment s2 = GetSegment(2)
-
-        float high1 = s2.highest
-        float low1  = s1.lowest
-        float high2 = s0.highest
-
-        float H1L1Range = high1 - low1
-
-        if H1L1Range <= 0
-            na
-        else
-            (high2 - low1) / H1L1Range * 100.0
+            Pattern.new(
+                valid,
+                false,
+                high1,
+                low1,
+                high2,
+                high1Bar,
+                low1Bar,
+                high2Bar,
+                retracement
+            )
 
 //==================================================
 // DRAW BUY PATTERN
 //==================================================
 
-DrawBuyPattern() =>
-    Segment s0 = GetSegment(0)
-    Segment s1 = GetSegment(1)
-    Segment s2 = GetSegment(2)
-
-    // L1 -> H1
+DrawBuyPattern(Pattern pattern) =>
     line.new(
-        s2.lowestBar,
-        s2.lowest,
-        s1.highestBar,
-        s1.highest,
+        pattern.point1Bar,
+        pattern.point1,
+        pattern.point2Bar,
+        pattern.point2,
         xloc=xloc.bar_index,
         color=color.green,
         width=2
     )
 
-    // H1 -> L2
     line.new(
-        s1.highestBar,
-        s1.highest,
-        s0.lowestBar,
-        s0.lowest,
+        pattern.point2Bar,
+        pattern.point2,
+        pattern.point3Bar,
+        pattern.point3,
         xloc=xloc.bar_index,
         color=color.green,
         width=2
@@ -260,28 +258,22 @@ DrawBuyPattern() =>
 // DRAW SELL PATTERN
 //==================================================
 
-DrawSellPattern() =>
-    Segment s0 = GetSegment(0)
-    Segment s1 = GetSegment(1)
-    Segment s2 = GetSegment(2)
-
-    // H1 -> L1
+DrawSellPattern(Pattern pattern) =>
     line.new(
-        s2.highestBar,
-        s2.highest,
-        s1.lowestBar,
-        s1.lowest,
+        pattern.point1Bar,
+        pattern.point1,
+        pattern.point2Bar,
+        pattern.point2,
         xloc=xloc.bar_index,
         color=color.red,
         width=2
     )
 
-    // L1 -> H2
     line.new(
-        s1.lowestBar,
-        s1.lowest,
-        s0.highestBar,
-        s0.highest,
+        pattern.point2Bar,
+        pattern.point2,
+        pattern.point3Bar,
+        pattern.point3,
         xloc=xloc.bar_index,
         color=color.red,
         width=2
@@ -291,16 +283,12 @@ DrawSellPattern() =>
 // DRAW BUY LABEL
 //==================================================
 
-DrawBuyLabel() =>
-    Segment s0 = GetSegment(0)
-
-    float retracement = GetBuyRetracement()
-
+DrawBuyLabel(Pattern pattern) =>
     label.new(
         bar_index,
-        s0.lowest,
+        pattern.point3,
         "BUY\nRetracement: "
-          + str.tostring(retracement, "#.##") + "%",
+          + str.tostring(pattern.retracement, "#.##") + "%",
         style=label.style_label_up,
         color=color.green,
         textcolor=color.white
@@ -310,16 +298,12 @@ DrawBuyLabel() =>
 // DRAW SELL LABEL
 //==================================================
 
-DrawSellLabel() =>
-    Segment s0 = GetSegment(0)
-
-    float retracement = GetSellRetracement()
-
+DrawSellLabel(Pattern pattern) =>
     label.new(
         bar_index,
-        s0.highest,
+        pattern.point3,
         "SELL\nRetracement: "
-          + str.tostring(retracement, "#.##") + "%",
+          + str.tostring(pattern.retracement, "#.##") + "%",
         style=label.style_label_down,
         color=color.red,
         textcolor=color.white
@@ -383,81 +367,78 @@ if crossHappened
     currentIsGreen := greenCross
 
 //==================================================
+// DETECT CURRENT PATTERN
+//==================================================
+
+Pattern currentPattern = Pattern.new(
+    false,
+    true,
+    na,
+    na,
+    na,
+    na,
+    na,
+    na,
+    na
+)
+
+if crossHappened
+    if greenCross
+        currentPattern := BuildBuyPattern()
+
+    if redCross
+        currentPattern := BuildSellPattern()
+
+//==================================================
 // DEBUG
 //==================================================
 
 if showDebug and crossHappened and HasEnoughSegments(3)
-
-    Segment s0 = GetSegment(0)
-    Segment s1 = GetSegment(1)
-    Segment s2 = GetSegment(2)
-
-    bool buyPattern = IsBuyPattern()
-    bool sellPattern = IsSellPattern()
-
-    //--------------------------------------------------
-    // BUY DEBUG
-    //--------------------------------------------------
-
     if greenCross
-
-        float low1 = s2.lowest
-        float high1 = s1.highest
-        float low2 = s0.lowest
-
-        float buyRetracement = GetBuyRetracement()
-
         string msg =
               "BUY Pattern Check"
-          + "\nL1 : " + str.tostring(low1)
-          + "\nH1 : " + str.tostring(high1)
-          + "\nL2 : " + str.tostring(low2)
+          + "\nL1 : " + str.tostring(currentPattern.point1)
+          + "\nH1 : " + str.tostring(currentPattern.point2)
+          + "\nL2 : " + str.tostring(currentPattern.point3)
           + "\nRetracement : "
-          + str.tostring(buyRetracement, "#.##") + "%"
+          + str.tostring(currentPattern.retracement, "#.##") + "%"
           + "\nHigher Low : "
-          + str.tostring(low2 > low1)
+          + str.tostring(
+                currentPattern.point3 > currentPattern.point1
+            )
           + "\nResult : "
-          + (buyPattern ? "PASS" : "FAIL")
+          + (currentPattern.valid ? "PASS" : "FAIL")
 
         label.new(
             bar_index,
-            low2,
+            currentPattern.point3,
             msg,
             style=label.style_label_up,
-            color=buyPattern ? color.green : color.gray,
+            color=currentPattern.valid ? color.green : color.gray,
             textcolor=color.white
         )
 
-    //--------------------------------------------------
-    // SELL DEBUG
-    //--------------------------------------------------
-
     if redCross
-
-        float high1 = s2.highest
-        float low1  = s1.lowest
-        float high2 = s0.highest
-
-        float sellRetracement = GetSellRetracement()
-
         string msg =
               "SELL Pattern Check"
-          + "\nH1 : " + str.tostring(high1)
-          + "\nL1 : " + str.tostring(low1)
-          + "\nH2 : " + str.tostring(high2)
+          + "\nH1 : " + str.tostring(currentPattern.point1)
+          + "\nL1 : " + str.tostring(currentPattern.point2)
+          + "\nH2 : " + str.tostring(currentPattern.point3)
           + "\nRetracement : "
-          + str.tostring(sellRetracement, "#.##") + "%"
+          + str.tostring(currentPattern.retracement, "#.##") + "%"
           + "\nLower High : "
-          + str.tostring(high2 < high1)
+          + str.tostring(
+                currentPattern.point3 < currentPattern.point1
+            )
           + "\nResult : "
-          + (sellPattern ? "PASS" : "FAIL")
+          + (currentPattern.valid ? "PASS" : "FAIL")
 
         label.new(
             bar_index,
-            high2,
+            currentPattern.point3,
             msg,
             style=label.style_label_down,
-            color=sellPattern ? color.red : color.gray,
+            color=currentPattern.valid ? color.red : color.gray,
             textcolor=color.white
         )
 
@@ -468,10 +449,13 @@ if showDebug and crossHappened and HasEnoughSegments(3)
 if greenCross
     // Close existing SELL
     if strategy.position_size < 0
-        strategy.close("SELL", comment="Green Cross")
+        strategy.close(
+            "SELL",
+            comment="Green Cross"
+        )
 
-    // Enter BUY when pattern is valid
-    if IsBuyPattern() and strategy.position_size <= 0
+    // Enter BUY
+    if currentPattern.valid
         strategy.entry(
             "BUY",
             strategy.long,
@@ -481,10 +465,13 @@ if greenCross
 if redCross
     // Close existing BUY
     if strategy.position_size > 0
-        strategy.close("BUY", comment="Red Cross")
+        strategy.close(
+            "BUY",
+            comment="Red Cross"
+        )
 
-    // Enter SELL when pattern is valid
-    if IsSellPattern() and strategy.position_size >= 0
+    // Enter SELL
+    if currentPattern.valid
         strategy.entry(
             "SELL",
             strategy.short,
@@ -495,16 +482,15 @@ if redCross
 // PATTERN VISUALIZATION
 //==================================================
 
-if showPattern and greenCross and IsBuyPattern()
+if showPattern and currentPattern.valid
+    if currentPattern.isBuy
+        DrawBuyPattern(currentPattern)
 
-    DrawBuyPattern()
+        if showPatternLabels
+            DrawBuyLabel(currentPattern)
 
-    if showPatternLabels
-        DrawBuyLabel()
+    else
+        DrawSellPattern(currentPattern)
 
-if showPattern and redCross and IsSellPattern()
-
-    DrawSellPattern()
-
-    if showPatternLabels
-        DrawSellLabel()
+        if showPatternLabels
+            DrawSellLabel(currentPattern)
