@@ -24,9 +24,6 @@ showDebug = input.bool(true)
 retracementMin = input.float(61.8, "Retracement Min %")
 retracementMax = input.float(100.0, "Retracement Max %")
 
-isFixedLot = input.bool(true, "Use Fixed Lot?")
-fixedLot = input.float(10.0, "Fixed Lot", minval=0.01, step=0.01)
-
 riskUSD = input.float(1000.0, "Risk Per Trade ($)", minval=0.01, step=100.0)
 maxLot = input.float(100.0, "Max Lot", minval=0.01, step=0.01)
 slBuffer = input.float(1.5, "SL Buffer ($)", minval=0.0, step=0.01)
