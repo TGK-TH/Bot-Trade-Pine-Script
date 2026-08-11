@@ -3,7 +3,11 @@ strategy(
     "TGK CDC Lookalike Account 2",
     overlay=true,
     pyramiding=0,
-    process_orders_on_close=true,
+    initial_capital=100000,
+    // process_orders_on_close=true,
+    margin_long = 1,
+    margin_short = 1,
+    calc_on_every_tick = true,
     max_lines_count=500,
     max_labels_count=500
 )
@@ -20,7 +24,14 @@ showDebug = input.bool(true)
 retracementMin = input.float(61.8, "Retracement Min %")
 retracementMax = input.float(100.0, "Retracement Max %")
 
+isFixedLot = input.bool(true, "Use Fixed Lot?")
 fixedLot = input.float(10.0, "Fixed Lot", minval=0.01, step=0.01)
+
+riskUSD = input.float(1000.0, "Risk Per Trade ($)", minval=0.01, step=100.0)
+maxLot = input.float(100.0, "Max Lot", minval=0.01, step=0.01)
+slBuffer = input.float(1.5, "SL Buffer ($)", minval=0.0, step=0.01)
+
+setSlAtLastPivot = input.bool(false, "Set SL at last pivot?")
 
 showPattern = input.bool(true, "Show Pattern")
 showPatternLabels = input.bool(true, "Show Pattern Labels")
@@ -34,6 +45,37 @@ ema26 = ta.ema(close, emaSlowLen)
 
 plot(ema12, color=color.green)
 plot(ema26, color=color.orange)
+
+//==================================================
+// POSITION SIZE
+//==================================================
+
+// For XAUUSD, syminfo.pointvalue should be the value of a $1 move per lot.
+// Check the symbol's contract specification before using this on another market.
+CalcLot(float entryPrice, float stopPrice) =>
+    float riskDistance = math.abs(entryPrice - stopPrice)
+    float riskPerLot = riskDistance * syminfo.pointvalue
+    float qty = riskPerLot > 0 ? riskUSD / riskPerLot : 0.0
+    qty := math.max(qty, 0.01)
+    qty := math.min(qty, maxLot)
+    math.round(qty * 100) / 100
+    qty
+
+//==================================================
+// PIVOTS
+//==================================================
+
+pivotLow = ta.pivotlow(low, 2, 1)
+pivotHigh = ta.pivothigh(high, 2, 1)
+
+var float lastPivotLow = na
+var float lastPivotHigh = na
+
+if not na(pivotLow)
+    lastPivotLow := pivotLow
+
+if not na(pivotHigh)
+    lastPivotHigh := pivotHigh
 
 //==================================================
 // CROSS
@@ -454,13 +496,25 @@ if greenCross
             comment="Green Cross"
         )
 
-    // Enter BUY
-    if currentPattern.valid
+    // =================================================
+    // เข้าทุกแผน
+    // ถ้า Pattern Valid ให้ใช้ SL ที่ Point 3 ของ Pattern
+    // ถ้า Pattern Invalid ให้ใช้ SL ที่ Pivot Low ล่าสุด
+    // =================================================
+    float tradeSL = currentPattern.valid ? currentPattern.point3 - slBuffer : lastPivotLow - slBuffer
+    // Risk sizing needs a confirmed pivot low below the long entry.
+    bool validRiskSL = not na(tradeSL) and tradeSL < close
+    float buyQty = validRiskSL ? CalcLot(close, tradeSL) : na
+
+    if not na(buyQty)
         strategy.entry(
             "BUY",
             strategy.long,
-            qty=fixedLot
+            qty=buyQty
         )
+
+        if setSlAtLastPivot and validRiskSL
+            strategy.exit("BUY SL", "BUY", stop=tradeSL)
 
 if redCross
     // Close existing BUY
@@ -470,13 +524,25 @@ if redCross
             comment="Red Cross"
         )
 
-    // Enter SELL
-    if currentPattern.valid
+    // =================================================
+    // เข้าทุกแผน
+    // ถ้า Pattern Valid ให้ใช้ SL ที่ Point 3 ของ Pattern
+    // ถ้า Pattern Invalid ให้ใช้ SL ที่ Pivot High ล่าสุด
+    // =================================================
+    float tradeSL = currentPattern.valid ? currentPattern.point3 + slBuffer : lastPivotHigh + slBuffer
+    // Risk sizing needs a confirmed pivot high above the short entry.
+    bool validRiskSL = not na(tradeSL) and tradeSL > close
+    float sellQty = validRiskSL ? CalcLot(close, tradeSL) : na
+
+    if not na(sellQty)
         strategy.entry(
             "SELL",
             strategy.short,
-            qty=fixedLot
+            qty=sellQty
         )
+
+        if setSlAtLastPivot and validRiskSL
+            strategy.exit("SELL SL", "SELL", stop=tradeSL)
 
 //==================================================
 // PATTERN VISUALIZATION
